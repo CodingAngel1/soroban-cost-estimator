@@ -265,27 +265,34 @@ async fn run_cli() -> i32 {
     cli::init_color(args.color);
     cli::init_quiet(args.quiet);
 
-    let default_level = if args.quiet {
-        "warn"
-    } else if args.verbose {
-        "debug"
+    let (filter, writer): (
+        EnvFilter,
+        Box<dyn Fn() -> Box<dyn std::io::Write + Send> + Send + Sync>,
+    ) = if args.verbose {
+        (
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("soroban_cost_estimator=debug")),
+            Box::new(|| Box::new(std::io::stderr())),
+        )
     } else {
-        "info"
+        (
+            EnvFilter::new("off"),
+            Box::new(|| Box::new(std::io::stderr())),
+        )
     };
     tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level)),
-        )
+        .with_env_filter(filter)
+        .with_writer(writer)
         .init();
 
-    if !args.quiet {
+    if !args.quiet && args.verbose {
         info!(command = ?args.command, verbose = args.verbose, quiet = args.quiet, "starting soroban-cost-estimator");
     }
 
     if let Err(err) = run(args, file).await {
         error!(error = %err, "command failed");
         eprintln!("Error: {err}");
-        return 1;
+        return err.exit_code();
     }
 
     0
